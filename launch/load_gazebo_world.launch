@@ -1,0 +1,7 @@
+<launch>
+
+   <include file="$(find sr_hand)/launch/gazebo/gazebo_arm_and_hand.launch"/>
+
+   <node name="grasp" pkg="sr_grasp" type="grasp" args="" />
+
+</launch>

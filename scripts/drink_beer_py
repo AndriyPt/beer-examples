@@ -1,0 +1,98 @@
+#!/usr/bin/env python
+
+import roslib
+import rospy
+import math
+from std_msgs.msg import Float64
+from beer_examples.utils import *
+
+
+def add_or_update_model(existing_models, model_name, pose, model_type=None, filename=None, hard_reset=False):
+    add_new_model = False
+    if model_name in existing_models:
+        rospy.loginfo("Updating {} position...".format(model_name))
+        if hard_reset:
+            delete_gazebo_model(model_name)
+            rospy.sleep(2)
+            add_new_model = True
+        else:
+            update_gazebo_model(model_name, pose)
+    else:
+        rospy.loginfo("Adding new {}...".format(model_name))
+        add_new_model = True
+
+    if add_new_model:
+        if filename is not None:
+            if model_type is not None:
+                message = "Only one parameter should be provided model_type or filename"
+                rospy.logerr(message)
+                raise Exception(message)
+            add_gazebo_model_from_sdf(model_name, filename, pose)
+        elif model_type is not None:
+            add_gazebo_model_from_database(model_name, model_type, pose)
+        else:
+            message = "Either model_type or filename should be provided"
+            rospy.logerr(message)
+            raise Exception(message)
+
+
+def create_world_items():
+    existing_models = get_gazebo_world_models_name()
+
+    table_pose = get_pose(0.8, 0.45, yaw=math.pi / 2)
+    add_or_update_model(existing_models, "main_table", table_pose, "table")
+
+    trash_box_pose = get_pose(0.6, -0.55)
+    add_or_update_model(existing_models, "trash_box", trash_box_pose,
+        filename=roslib.packages.get_pkg_dir("beer_examples") + "/models/wooden_box.sdf")
+
+    beer_position = get_pose(0.67, -0.22, 1.015)
+    add_or_update_model(existing_models, "my_beer", beer_position,
+        filename=roslib.packages.get_pkg_dir("beer_examples") + "/models/beer.sdf", hard_reset=True)
+    rospy.sleep(2)
+
+
+if __name__ == '__main__':
+
+    rospy.init_node("drink_beer_py")
+
+    arm_swing_publisher = rospy.Publisher("sa_ss_position_controller/command", Float64, queue_size=10, latch=True)
+    arm_rotation_publisher = rospy.Publisher("sa_sr_position_controller/command", Float64, queue_size=10, latch=True)
+    elbow_swing_publisher = rospy.Publisher("sa_es_position_controller/command", Float64, queue_size=10, latch=True)
+    elbow_rotation_publisher = rospy.Publisher("sa_er_position_controller/command", Float64, queue_size=10, latch=True)
+
+    publish_joint_state(elbow_swing_publisher, 2.0, "Moving elbow up...")
+    publish_joint_state(arm_swing_publisher, 1.0, "Moving arm up...", 2)
+    publish_joint_state(arm_rotation_publisher, -0.25, "Moving arm to object...")
+    publish_joint_state(elbow_rotation_publisher, -0.7, "Rotating elbow...", 2)
+
+    create_world_items()
+
+    rospy.loginfo("Preparing for grasp...")
+    grasp = get_grasp("power_grasp_vertical")
+    run_grasp(grasp, True)
+
+    publish_joint_state(arm_swing_publisher, 0.78, "Moving arm down...")
+    publish_joint_state(elbow_swing_publisher, 0.6, "Moving elbow down...", 2)
+    publish_joint_state(arm_rotation_publisher, -0.2, "Moving arm to object...", 2)
+
+    rospy.loginfo("Grasping...")
+    run_grasp(grasp)
+
+    publish_joint_state(arm_swing_publisher, 1.6, "Moving hand up...")
+    publish_joint_state(elbow_swing_publisher, 2.0, delay=2)
+
+    publish_joint_state(arm_rotation_publisher, -2, "Rotating arm...")
+    publish_joint_state(elbow_rotation_publisher, 0.7, "Rotating elbow...", 2)
+
+    publish_joint_state(elbow_swing_publisher, 0.3, "Throwing object...")
+    run_grasp(grasp, True)
+
+    publish_joint_state(arm_swing_publisher, 0.8, "Moving arm...")
+    publish_joint_state(arm_rotation_publisher, 0.0, "Rotating arm...")
+    publish_joint_state(elbow_swing_publisher, 0.6, "Moving elbow up...")
+    publish_joint_state(elbow_rotation_publisher, -0.7, "Rotating elbow...", 4)
+
+    rospy.loginfo("Showing Ok...")
+    grasp = get_grasp("ok_sign", roslib.packages.get_pkg_dir("beer_examples") + "/resource/grasps.yaml")
+    run_grasp(grasp)
